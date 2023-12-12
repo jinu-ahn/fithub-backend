@@ -45,9 +45,13 @@ public class EmailServiceImpl implements EmailService {
 
     @Override
     public ResponseEntity<String> checkCertificationNumber(EmailNumberDto emailNumberDto) {
-        if(sentMail.get(emailNumberDto.getEmail()).equals(emailNumberDto.getCertificationNumber())){
-            sentMail.remove(emailNumberDto.getEmail());
-            return ResponseEntity.ok("Success");
+        try {
+            if (sentMail.get(emailNumberDto.getEmail()).equals(emailNumberDto.getCertificationNumber())) {
+                sentMail.remove(emailNumberDto.getEmail());
+                return ResponseEntity.ok("Success");
+            }
+        } catch(NullPointerException e) {
+            return new ResponseEntity<>("Fail", HttpStatus.BAD_REQUEST);
         }
         return new ResponseEntity<>("Fail", HttpStatus.BAD_REQUEST);
     }
