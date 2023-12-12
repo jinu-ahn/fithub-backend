@@ -1,5 +1,6 @@
 package com.fithub.fithubbackend.domain.user.domain;
 
+import com.fithub.fithubbackend.domain.user.dto.OAuthSignUpDto;
 import com.fithub.fithubbackend.domain.user.dto.SignUpDto;
 import com.fithub.fithubbackend.domain.user.enums.Gender;
 import com.fithub.fithubbackend.domain.user.enums.Grade;
@@ -62,7 +63,7 @@ public class User extends BaseTimeEntity implements UserDetails {
 
     @OneToOne(cascade = CascadeType.PERSIST)
     @JoinColumn(name = "document_id")
-    private Document profileImgId;
+    private Document profileImg;
 
     @ElementCollection
     private List<String> roles = new ArrayList<>();
@@ -81,13 +82,13 @@ public class User extends BaseTimeEntity implements UserDetails {
         this.gender = signUpDto.getGender();
         this.grade = Grade.NORMAL;
         this.status = Status.NORMAL;
-        this.profileImgId = document;
+        this.profileImg = document;
         this.bio = signUpDto.getBio();
         this.roles = Collections.singletonList("USER");
     }
     @Builder(builderMethodName = "oAuthBuilder", buildMethodName = "oAuthBuild")
     public User (String nickname, String email, String provider, String providerId) {
-        this.name = nickname;
+        this.name = "";
         this.nickname = nickname;
         this.email = email;
         this.provider = provider;
@@ -98,12 +99,50 @@ public class User extends BaseTimeEntity implements UserDetails {
         this.gender = Gender.UNDEFINED;
         this.phone = "";
     }
+    @Builder(builderMethodName = "oAuthKakaoBuilder", buildMethodName = "oAuthKakaoBuild")
+    public User (String nickname, String provider, String providerId, Document profileImg) {
+        this.name = "";
+        this.nickname = nickname;
+        this.email = "";
+        this.provider = provider;
+        this.providerId = providerId;
+        this.roles = Collections.singletonList("GUEST");
+        this.profileImg = profileImg;
+        this.grade = Grade.NORMAL;
+        this.status = Status.NORMAL;
+        this.gender = Gender.UNDEFINED;
+        this.phone = "";
+    }
+
+    @Builder(builderMethodName = "oAuthNaverBuilder", buildMethodName = "oAuthNaverBuild")
+    public User (String nickname, String email, String provider, String providerId, String name, Gender gender, String phone) {
+        this.name = name;
+        this.nickname = nickname;
+        this.email = email;
+        this.provider = provider;
+        this.providerId = providerId;
+        this.roles = Collections.singletonList("GUEST");
+        this.grade = Grade.NORMAL;
+        this.status = Status.NORMAL;
+        this.gender = gender;
+        this.phone = phone;
+    }
 
     public User updateNicknameAndEmail(String nickname, String email) {
-        this.name = nickname;
         this.nickname = nickname;
         this.email = email;
         return this;
+    }
+
+    public void updateNameAndPhoneAndBioAndGender(OAuthSignUpDto oAuthSignUpDto) {
+        this.name = oAuthSignUpDto.getName();
+        this.phone = oAuthSignUpDto.getPhone();
+        this.bio = oAuthSignUpDto.getBio();
+        this.gender = oAuthSignUpDto.getGender();
+    }
+
+    public void updateGuestToUser() {
+        this.roles.set(this.roles.indexOf("GUEST"), "USER");
     }
 
     @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)

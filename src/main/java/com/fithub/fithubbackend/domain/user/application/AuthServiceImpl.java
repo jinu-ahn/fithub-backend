@@ -1,15 +1,13 @@
 package com.fithub.fithubbackend.domain.user.application;
 
 import com.fithub.fithubbackend.domain.user.domain.User;
-import com.fithub.fithubbackend.domain.user.dto.SignInDto;
-import com.fithub.fithubbackend.domain.user.dto.SignOutDto;
-import com.fithub.fithubbackend.domain.user.dto.SignUpDto;
-import com.fithub.fithubbackend.domain.user.dto.SignUpResponseDto;
+import com.fithub.fithubbackend.domain.user.dto.*;
 import com.fithub.fithubbackend.domain.user.dto.constants.SignUpDtoConstants;
 import com.fithub.fithubbackend.domain.user.repository.DocumentRepository;
 import com.fithub.fithubbackend.domain.user.repository.UserRepository;
 import com.fithub.fithubbackend.global.auth.JwtTokenProvider;
 import com.fithub.fithubbackend.global.auth.TokenInfoDto;
+import com.fithub.fithubbackend.global.config.s3.AwsS3Uploader;
 import com.fithub.fithubbackend.global.domain.Document;
 import com.fithub.fithubbackend.global.exception.CustomException;
 import com.fithub.fithubbackend.global.exception.ErrorCode;
@@ -18,19 +16,24 @@ import com.fithub.fithubbackend.global.util.HeaderUtil;
 import com.fithub.fithubbackend.global.util.RedisUtil;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.springframework.context.support.DefaultMessageSourceResolvable;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.Authentication;
-import org.springframework.transaction.annotation.Transactional;
-import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.support.DefaultMessageSourceResolvable;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.ObjectUtils;
 import org.springframework.validation.BindingResult;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.io.IOException;
 
 @Service
 @RequiredArgsConstructor
@@ -46,18 +49,32 @@ public class AuthServiceImpl implements AuthService {
     private final CookieUtil cookieUtil;
     private final HeaderUtil headerUtil;
 
+    private final AwsS3Uploader awsS3Uploader;
+
+    @Value("${default.image.address}")
+    private String profileImgUrl;
     @Override
     @Transactional
-    public ResponseEntity<SignUpResponseDto> signUp(@Valid SignUpDto signUpDto, BindingResult bindingResult){
+    public ResponseEntity<SignUpResponseDto> signUp(SignUpDto signUpDto, MultipartFile profileImg, BindingResult bindingResult) throws IOException {
         formValidate(bindingResult); // 입력 형식 검증
         duplicateEmail(signUpDto.getEmail()); // 이메일 중복 확인
         duplicateNickname(signUpDto.getNickname()); // 닉네임 중복 확인
 
+        String profileImgInputName = "default";
+        String profileImgPath = "default";
+
+        if(!profileImg.isEmpty()){
+            profileImgPath = awsS3Uploader.imgPath("profiles");
+            profileImgUrl = awsS3Uploader.putS3(profileImg,profileImgPath);
+            profileImgInputName = profileImg.getOriginalFilename();
+        }
+
         Document document = Document.builder()
-                .url("test")
-                .inputName("test")
-                .path("test")
-                .build();
+                        .url(profileImgUrl)
+                        .inputName(profileImgInputName)
+                        .path(profileImgPath)
+                        .build();
+
         documentRepository.save(document);
         String encodedPassword = passwordEncoder.encode(signUpDto.getPassword()); // 비밀번호 인코딩
 
@@ -72,20 +89,24 @@ public class AuthServiceImpl implements AuthService {
     @Transactional
     public TokenInfoDto signIn(SignInDto signInDto, HttpServletResponse response) {
 
-        UsernamePasswordAuthenticationToken authenticationToken = new UsernamePasswordAuthenticationToken(signInDto.getEmail(), signInDto.getPassword());
+        try {
+            UsernamePasswordAuthenticationToken authenticationToken = new UsernamePasswordAuthenticationToken(signInDto.getEmail(), signInDto.getPassword());
 
-        Authentication authentication = authenticationManagerBuilder.getObject().authenticate(authenticationToken);
+            Authentication authentication = authenticationManagerBuilder.getObject().authenticate(authenticationToken);
 
-        TokenInfoDto tokenInfoDto = jwtTokenProvider.createToken(authentication);
+            TokenInfoDto tokenInfoDto = jwtTokenProvider.createToken(authentication);
 
-        // refreshToken, accessToken 쿠키에 저장
-        cookieUtil.addRefreshTokenCookie(response, tokenInfoDto);
-        cookieUtil.addAccessTokenCookie(response, tokenInfoDto.getAccessToken());
+            // refreshToken 쿠키에 저장
+            cookieUtil.addRefreshTokenCookie(response, tokenInfoDto);
 
-        // Redis에 Key(이메일):Value(refreshToken) 저장
-        redisUtil.setData(authentication.getName(), tokenInfoDto.getRefreshToken(), tokenInfoDto.getRefreshTokenExpirationTime());
+            // Redis에 Key(이메일):Value(refreshToken) 저장
+            redisUtil.setData(authentication.getName(), tokenInfoDto.getRefreshToken(), tokenInfoDto.getRefreshTokenExpirationTime());
 
-        return tokenInfoDto;
+            return tokenInfoDto;
+        } catch (BadCredentialsException e) {
+            throw new CustomException(ErrorCode.INVALID_PWD);
+        }
+
     }
 
     @Override
@@ -149,6 +170,14 @@ public class AuthServiceImpl implements AuthService {
         cookieUtil.updateCookie(request, response, tokenInfoDto);
 
         return tokenInfoDto;
+    }
+
+    @Override
+    @Transactional
+    public void oAuthSignUp(OAuthSignUpDto oAuthSignUpDto, Long userId) {
+        User user = userRepository.findById(userId).orElseThrow(() -> new UsernameNotFoundException("소셜 회원가입을 다시 진행해주십시오."));
+        user.updateNameAndPhoneAndBioAndGender(oAuthSignUpDto);
+        user.updateGuestToUser();
     }
 
     private void duplicateNickname(String nickname){

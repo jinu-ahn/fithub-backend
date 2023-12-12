@@ -1,6 +1,7 @@
 package com.fithub.fithubbackend.global.auth;
 
 import com.fithub.fithubbackend.domain.user.domain.User;
+import com.fithub.fithubbackend.domain.user.repository.DocumentRepository;
 import com.fithub.fithubbackend.domain.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -23,6 +24,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class OAuthService implements OAuth2UserService<OAuth2UserRequest, OAuth2User> {
     private final UserRepository userRepository;
+    private final DocumentRepository documentRepository;
 
     @Override
     @Transactional
@@ -37,7 +39,7 @@ public class OAuthService implements OAuth2UserService<OAuth2UserRequest, OAuth2
         Map<String, Object> attributes = oAuth2User.getAttributes();
 
         User user = OAuthAttributes.extract(registrationId, attributes);
-        user = saveOrUpdate(user);
+        user = saveOrUpdate(user,registrationId);
 
         Map<String, Object> customAttribute = customAttribute(attributes, userNameAttributeName, user);
         return new DefaultOAuth2User(
@@ -52,22 +54,73 @@ public class OAuthService implements OAuth2UserService<OAuth2UserRequest, OAuth2
         Map<String, Object> customAttribute = new LinkedHashMap<>();
         customAttribute.put(userNameAttributeName, attributes.get(userNameAttributeName));
         customAttribute.put("id", user.getId());
-        customAttribute.put("email", user.getEmail());
         customAttribute.put("provider", user.getProvider());
-        customAttribute.put("nickname", user.getNickname());
+        customAttribute.put("name", user.getName());
+        customAttribute.put("email", user.getEmail());
+//        customAttribute.put("profileImg", user.getProfileImg());
+        customAttribute.put("phone", user.getPhone());
+        customAttribute.put("gender", user.getGender().toString());
         return customAttribute;
     }
 
-    private User saveOrUpdate(User user) {
+    private User saveOrUpdate(User user, String registrationId) {
         // 회원가입에서는 GUEST 권한 부여, 추가 정보 입력 후 GUEST 권한 삭제, USER 권한 부여
         User newUser = userRepository.findByEmailAndProvider(user.getEmail(), user.getProvider())
                 .map(m -> m.updateNicknameAndEmail(user.getNickname(), user.getEmail()))
-                .orElseGet(() -> User.oAuthBuilder()
-                        .nickname(user.getNickname())
-                        .email(user.getEmail())
-                        .provider(user.getProvider())
-                        .providerId(user.getProviderId())
-                        .oAuthBuild());
+                .orElseGet(() -> {
+                    // REFACTOR: factory나 그런 걸로 리팩토링 가능
+                    if(registrationId.equals("google")) {
+                        return ofGoogle(user);
+                    }
+                    else if(registrationId.equals("kakao")){
+//                        Document profileImg = Document.builder()
+//                                .url(user.getProfileImg().getUrl())
+//                                .inputName(user.getProfileImg().getInputName())
+//                                .path(user.getProfileImg().getPath())
+//                                .build();
+//                        documentRepository.save(profileImg);
+//                        return ofKakao(user, profileImg);
+                        return ofKakao(user);
+                    }
+                    else
+                        return ofNaver(user);
+                });
         return userRepository.save(newUser);
+    }
+    private User ofGoogle(User user) {
+        return User.oAuthBuilder()
+                .nickname(user.getNickname())
+                .email(user.getEmail())
+                .provider(user.getProvider())
+                .providerId(user.getProviderId())
+                .oAuthBuild();
+    }
+//    private User ofKakao(User user, Document profileImg) {
+//        return User.oAuthKakaoBuilder()
+//                .nickname(user.getNickname())
+//                .profileImg(profileImg)
+//                .provider(user.getProvider())
+//                .providerId(user.getProviderId())
+//                .oAuthKakaoBuild();
+//    }
+
+    private User ofKakao(User user) {
+        return User.oAuthKakaoBuilder()
+                .nickname(user.getNickname())
+                .provider(user.getProvider())
+                .providerId(user.getProviderId())
+                .oAuthKakaoBuild();
+    }
+
+    private User ofNaver(User user) {
+        return User.oAuthNaverBuilder()
+                .nickname(user.getNickname())
+                .email(user.getEmail())
+                .phone(user.getPhone())
+                .name(user.getName())
+                .gender(user.getGender())
+                .provider(user.getProvider())
+                .providerId(user.getProviderId())
+                .oAuthNaverBuild();
     }
 }
