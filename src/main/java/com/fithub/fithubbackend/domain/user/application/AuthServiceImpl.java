@@ -61,9 +61,9 @@ public class AuthServiceImpl implements AuthService {
         duplicateNickname(signUpDto.getNickname()); // 닉네임 중복 확인
 
         String profileImgInputName = "default";
-        String profileImgPath = "default";
+        String profileImgPath = "profiles/default";
 
-        if(!profileImg.isEmpty()){
+        if(profileImg != null && !profileImg.isEmpty()){
             profileImgPath = awsS3Uploader.imgPath("profiles");
             profileImgUrl = awsS3Uploader.putS3(profileImg,profileImgPath);
             profileImgInputName = profileImg.getOriginalFilename();
@@ -174,10 +174,18 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     @Transactional
-    public void oAuthSignUp(OAuthSignUpDto oAuthSignUpDto, Long userId) {
-        User user = userRepository.findById(userId).orElseThrow(() -> new UsernameNotFoundException("소셜 회원가입을 다시 진행해주십시오."));
+    public String oAuthSignUp(OAuthSignUpDto oAuthSignUpDto, String email, HttpServletResponse response) {
+        User user = userRepository.findByEmail(email).orElseThrow(() -> new UsernameNotFoundException("소셜 회원가입을 다시 진행해주십시오."));
         user.updateNameAndPhoneAndBioAndGender(oAuthSignUpDto);
         user.updateGuestToUser();
+
+        TokenInfoDto tokenInfoDto = jwtTokenProvider.createToken(email);
+
+        // refreshToken 쿠키에 저장
+        cookieUtil.addRefreshTokenCookie(response, tokenInfoDto);
+        // Redis에 Key(이메일):Value(refreshToken) 저장
+        redisUtil.setData(email, tokenInfoDto.getRefreshToken(), tokenInfoDto.getRefreshTokenExpirationTime());
+        return tokenInfoDto.getAccessToken();
     }
 
     private void duplicateNickname(String nickname){
