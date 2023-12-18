@@ -56,7 +56,7 @@ public class SecurityConfig {
                 .httpBasic(AbstractHttpConfigurer::disable)
 
                 // jwtFilter 추가
-                .addFilterBefore(new JwtAuthenticationFilter(jwtTokenProvider, redisUtil), UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(new JwtAuthenticationFilter(jwtTokenProvider, redisUtil, headerUtil), UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(new JwtExceptionFilter(jwtTokenProvider, headerUtil, cookieUtil), JwtAuthenticationFilter.class)
 
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -70,7 +70,10 @@ public class SecurityConfig {
                         .requestMatchers("/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated()
                 )
-                .exceptionHandling(e -> e.authenticationEntryPoint(new CustomAuthenticationEntryPoint()))
+                .exceptionHandling(e -> {
+                    e.authenticationEntryPoint(new CustomAuthenticationEntryPoint());
+                    e.accessDeniedHandler(((request, response, accessDeniedException) -> response.sendRedirect("/login")));
+                })
                 .oauth2Login(oauth2Login -> {
                     oauth2Login.userInfoEndpoint(userInfoEndPoint -> userInfoEndPoint.userService(oAuthService));
                     oauth2Login.successHandler(oAuthSuccessHandler);

@@ -36,7 +36,7 @@ public class OAuthSuccessHandler extends SimpleUrlAuthenticationSuccessHandler {
     @Override
     public void onAuthenticationSuccess(HttpServletRequest request, HttpServletResponse response, Authentication authentication) throws IOException, ServletException {
         OAuth2User oAuth2User = (OAuth2User) authentication.getPrincipal();
-        boolean isGuest = oAuth2User.getAuthorities().contains(new SimpleGrantedAuthority("GUEST"));
+        boolean isGuest = oAuth2User.getAuthorities().contains(new SimpleGrantedAuthority("ROLE_GUEST"));
         String accessToken = "";
 
         if (!isGuest) {
@@ -64,11 +64,12 @@ public class OAuthSuccessHandler extends SimpleUrlAuthenticationSuccessHandler {
     private String getGuestTargetUrl(Map<String, Object> attributes) {
         return UriComponentsBuilder.fromUriString(firstRedirect)
                 .queryParam("provider", attributes.get("provider"))
-                .queryParam("id", attributes.get("id"))
+                .queryParam("email", attributes.get("email"))
                 .queryParam("name", attributes.get("name"))
                 .queryParam("phone", attributes.get("phone"))
                 .queryParam("gender", attributes.get("gender"))
-                .build().toString();
+                .build()
+                .encode().toString();
     }
 
     private String getUserTargetUrl(String accessToken) {
